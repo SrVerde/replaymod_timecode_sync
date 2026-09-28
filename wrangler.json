@@ -1,7 +1,7 @@
 ﻿{
-  name: replaymod-timecode-sync,
-  compatibility_date: 2024-09-01,
-  assets: {
-    directory: .
-  }
+    "name":  "replaymod-timecode-sync",
+    "compatibility_date":  "2024-09-01",
+    "assets":  {
+                   "directory":  "."
+               }
 }
