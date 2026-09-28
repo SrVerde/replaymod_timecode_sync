@@ -1,0 +1,13 @@
+{
+  "video": {
+    "default_fps": 60,
+    "timeline_start_timecode": "01:00:00:00"
+  },
+  "app": {
+    "auto_copy": true,
+    "toast_duration_ms": 2000
+  },
+  "session": {
+    "name_prefix": "Sesion_"
+  }
+}

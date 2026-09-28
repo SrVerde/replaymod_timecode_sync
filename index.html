@@ -1,36 +1,370 @@
-﻿<!DOCTYPE html>
-<html lang=es>
+<!DOCTYPE html>
+<html lang="es">
 <head>
-  <meta charset=UTF-8>
-  <meta name=viewport content=width=device-width, initial-scale=1.0>
-  <title>ReplaySync Calculator</title>
-  <style>
-    body {
-      background-color: #121316;
-      color: #e2e8f0;
-      font-family: system-ui, -apple-system, sans-serif;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      margin: 0;
-      gap: 0.5rem;
-    }
-    h1 {
-      font-size: 2.5rem;
-      letter-spacing: -0.025em;
-      margin: 0;
-    }
-    p {
-      color: #94a3b8;
-      font-size: 1rem;
-      margin: 0;
-    }
-  </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReplaySync Calculator - DaVinci Resolve & ReplayMod Sync</title>
+  <meta name="description" content="Calculadora de sincronización por tramos (Piecewise) para editores de video. Sincroniza POV de Minecraft en DaVinci Resolve con ReplayMod.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>hola mundo</h1>
-  <p>Cloudflare Pages Deploy Trigger v2</p>
+  <!-- Header principal -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="brand">
+        <div class="brand-logo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">ReplaySync <span class="brand-badge">PRO</span></h1>
+          <p class="brand-subtitle">DaVinci Resolve ⟷ ReplayMod Sync</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-center">
+      <div class="session-selector-card">
+        <label for="session-select" class="selector-label">Sesión:</label>
+        <select id="session-select" class="dropdown-select" title="Sesión activa"></select>
+        <button id="btn-new-session" class="btn btn-secondary btn-sm" title="Nueva Sesión (Alt+N)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Nueva <kbd>Alt+N</kbd>
+        </button>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <div class="fps-pill">
+        <span class="fps-label">FPS:</span>
+        <select id="fps-select" class="fps-select" title="Framerate del proyecto">
+          <option value="60">60 fps</option>
+          <option value="50">50 fps</option>
+          <option value="30">30 fps</option>
+          <option value="25">25 fps</option>
+          <option value="24">24 fps</option>
+          <option value="120">120 fps</option>
+        </select>
+      </div>
+      <button id="btn-export" class="btn btn-secondary btn-icon" title="Exportar Respaldo (Alt+E)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        <span>Exportar</span>
+        <kbd>Alt+E</kbd>
+      </button>
+      <button id="btn-import" class="btn btn-secondary btn-icon" title="Importar Respaldo (Alt+I)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+        <span>Importar</span>
+        <kbd>Alt+I</kbd>
+      </button>
+      <input type="file" id="file-import-input" accept=".json" style="display: none;">
+    </div>
+  </header>
+
+  <!-- Contenedor Principal -->
+  <main class="main-container">
+    
+    <!-- Barra de Anclaje Activo (Sync Point) -->
+    <section class="sync-banner">
+      <div class="sync-banner-content">
+        <div class="sync-banner-meta">
+          <span class="sync-banner-tag">SYNC POINT ACTIVO (ANCLA)</span>
+          <div class="sync-select-wrapper">
+            <select id="sync-point-select" class="dropdown-select-large" title="Cambiar Sync Point activo (Flechas Arriba / Abajo)"></select>
+          </div>
+        </div>
+
+        <div class="sync-banner-details">
+          <div class="anchor-stat">
+            <span class="stat-name">POV Ancla (DaVinci)</span>
+            <span id="anchor-pov-display" class="stat-value font-mono">01:00:00:00</span>
+          </div>
+          <div class="anchor-divider"></div>
+          <div class="anchor-stat">
+            <span class="stat-name">ReplayMod Ancla</span>
+            <span id="anchor-rm-display" class="stat-value font-mono">1,250,000 ms</span>
+            <span id="anchor-rm-human" class="stat-sub font-mono">20m 50s 000ms</span>
+          </div>
+        </div>
+
+        <div class="sync-banner-actions">
+          <button id="btn-new-sp" class="btn btn-primary" title="Nuevo Sync Point (Alt+S)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+            Nuevo Punto <kbd>Alt+S</kbd>
+          </button>
+          <button id="btn-edit-sp" class="btn btn-secondary btn-icon" title="Editar Sync Point Activo">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+            Editar
+          </button>
+          <button id="btn-delete-sp" class="btn btn-danger btn-icon" title="Eliminar Sync Point Activo">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Paneles Bidireccionales de Conversión -->
+    <div class="conversion-grid">
+
+      <!-- MODO A: DaVinci POV -> ReplayMod -->
+      <section class="calc-panel panel-pov" id="panel-mode-a">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <div class="panel-icon icon-davinci">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
+            </div>
+            <div>
+              <h2 class="panel-title">DaVinci POV ➔ ReplayMod</h2>
+              <p class="panel-desc">Timecode de pantalla a milisegundos de ReplayMod</p>
+            </div>
+          </div>
+          <span class="shortcut-tag"><kbd>Alt+1</kbd> o <kbd>P</kbd></span>
+        </div>
+
+        <div class="panel-body">
+          <div class="input-block">
+            <div class="input-header">
+              <label for="input-pov-tc" class="field-label">Timecode POV ingresado (DaVinci)</label>
+              <span class="input-hint">Estilo DaVinci (derecha a izquierda) · Rollover auto</span>
+            </div>
+            <div class="input-field-wrapper focus-amber">
+              <input id="input-pov-tc" type="text" class="main-time-input font-mono" value="01:00:00:00" spellcheck="false" autocomplete="off" placeholder="00:00:00:00">
+              <button id="btn-calc-mode-a" class="btn-inside-calc" title="Calcular y Copiar (Enter)">
+                <span>Calcular</span>
+                <kbd>Enter ↵</kbd>
+              </button>
+            </div>
+          </div>
+
+          <!-- Resultado Modo A -->
+          <div class="result-card" id="card-result-a">
+            <div class="result-header">
+              <span class="result-label">ÍNDICE DE TIEMPO REPLAYMOD</span>
+              <button id="btn-copy-result-a" class="btn-copy" title="Copiar al portapapeles">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <span>Copiar</span>
+              </button>
+            </div>
+            <div class="result-main-val font-mono">
+              <span id="result-a-ms">1,250,000</span> <span class="unit">ms</span>
+            </div>
+            <div class="result-secondary font-mono" id="result-a-human">
+              20m 50s 000ms
+            </div>
+            
+            <div class="result-footer">
+              <div class="delta-tag" id="result-a-delta">
+                Δ 0 ms (0 frames)
+              </div>
+              <div class="warning-badge" id="warning-a-negative" style="display: none;">
+                ⚠️ Tiempo previo al punto ancla (desfase negativo)
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- MODO B: ReplayMod -> DaVinci POV -->
+      <section class="calc-panel panel-replay" id="panel-mode-b">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <div class="panel-icon icon-replay">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+            </div>
+            <div>
+              <h2 class="panel-title">ReplayMod ➔ DaVinci POV</h2>
+              <p class="panel-desc">Milisegundos de ReplayMod a Timecode de pantalla</p>
+            </div>
+          </div>
+          <span class="shortcut-tag"><kbd>Alt+2</kbd> o <kbd>R</kbd></span>
+        </div>
+
+        <div class="panel-body">
+          <div class="input-block">
+            <div class="input-header">
+              <label for="input-rm-ms" class="field-label">Tiempo ReplayMod ingresado (ms)</label>
+              <span class="input-hint" id="input-rm-preview-inline">20m 50s 000ms</span>
+            </div>
+            <div class="input-field-wrapper focus-cyan">
+              <input id="input-rm-ms" type="number" class="main-time-input font-mono" value="1250000" spellcheck="false" autocomplete="off" placeholder="Ej: 1250000">
+              <button id="btn-calc-mode-b" class="btn-inside-calc" title="Calcular y Copiar (Enter)">
+                <span>Calcular</span>
+                <kbd>Enter ↵</kbd>
+              </button>
+            </div>
+          </div>
+
+          <!-- Resultado Modo B -->
+          <div class="result-card" id="card-result-b">
+            <div class="result-header">
+              <span class="result-label">TIMECODE DAVINCI RESOLVE</span>
+              <button id="btn-copy-result-b" class="btn-copy" title="Copiar al portapapeles">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <span>Copiar</span>
+              </button>
+            </div>
+            <div class="result-main-val font-mono">
+              <span id="result-b-tc">01:00:00:00</span>
+            </div>
+            <div class="result-secondary font-mono" id="result-b-frames">
+              Total: 216,000 frames @ 60fps
+            </div>
+
+            <div class="result-footer">
+              <div class="delta-tag" id="result-b-delta">
+                Δ 0 frames (0 ms)
+              </div>
+              <div class="warning-badge" id="warning-b-negative" style="display: none;">
+                ⚠️ Tiempo previo al punto ancla (desfase negativo)
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Lista / Tabla de Sync Points de la Sesión -->
+    <section class="sync-points-section">
+      <div class="section-header">
+        <div class="section-title-wrap">
+          <h3 class="section-title">Puntos de Sincronización de la Sesión</h3>
+          <span id="sp-count-badge" class="badge-count">1 punto</span>
+        </div>
+        <button id="btn-add-sp-table" class="btn btn-secondary btn-sm">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Agregar Punto Ancla
+        </button>
+      </div>
+
+      <div class="table-responsive">
+        <table class="sync-table">
+          <thead>
+            <tr>
+              <th style="width: 50px;">Activo</th>
+              <th>Nombre del Evento Ancla</th>
+              <th>POV Timecode</th>
+              <th>ReplayMod ms</th>
+              <th>Preview ReplayMod</th>
+              <th style="width: 120px; text-align: right;">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="sync-points-tbody">
+            <!-- Rellenado dinámicamente -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Atajos Rápidos en Barra Inferior -->
+  <footer class="app-footer">
+    <div class="footer-shortcuts">
+      <span class="shortcut-item"><kbd>Alt+1</kbd> / <kbd>P</kbd> POV ➔ RM</span>
+      <span class="shortcut-item"><kbd>Alt+2</kbd> / <kbd>R</kbd> RM ➔ POV</span>
+      <span class="shortcut-item"><kbd>Enter</kbd> Calcular & Copiar</span>
+      <span class="shortcut-item"><kbd>↑ / ↓</kbd> Cambiar Ancla</span>
+      <span class="shortcut-item"><kbd>Alt+S</kbd> Nuevo Ancla</span>
+      <span class="shortcut-item"><kbd>Alt+N</kbd> Nueva Sesión</span>
+      <span class="shortcut-item"><kbd>Alt+E</kbd> Exportar</span>
+      <span class="shortcut-item"><kbd>Alt+I</kbd> Importar</span>
+      <span class="shortcut-item"><kbd>Esc</kbd> Cancelar / Blur</span>
+    </div>
+  </footer>
+
+  <!-- ==================== MODALES (DIALOGS) ==================== -->
+
+  <!-- Modal: Nueva Sesión -->
+  <dialog id="modal-session" class="app-dialog">
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <h3 class="dialog-title" id="modal-session-title">Nueva Sesión</h3>
+        <button class="btn-close-dialog" data-close-dialog title="Cerrar (Esc)">&times;</button>
+      </div>
+      <form id="form-session" class="dialog-body">
+        <div class="form-group">
+          <label for="session-name-input" class="form-label">Nombre de la Sesión</label>
+          <input type="text" id="session-name-input" class="form-input" required autocomplete="off" placeholder="Sesion_20260927_2300">
+        </div>
+        <div class="form-group">
+          <label for="session-fps-input" class="form-label">Framerate del Proyecto (FPS)</label>
+          <select id="session-fps-input" class="form-select">
+            <option value="60">60 fps</option>
+            <option value="50">50 fps</option>
+            <option value="30">30 fps</option>
+            <option value="25">25 fps</option>
+            <option value="24">24 fps</option>
+            <option value="120">120 fps</option>
+          </select>
+        </div>
+        <div class="dialog-footer">
+          <button type="button" class="btn btn-secondary" data-close-dialog>Cancelar</button>
+          <button type="submit" class="btn btn-primary">Crear Sesión</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal: Crear / Editar Sync Point -->
+  <dialog id="modal-syncpoint" class="app-dialog">
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <h3 class="dialog-title" id="modal-syncpoint-title">Nuevo Sync Point</h3>
+        <button class="btn-close-dialog" data-close-dialog title="Cerrar (Esc)">&times;</button>
+      </div>
+      <form id="form-syncpoint" class="dialog-body">
+        <input type="hidden" id="sp-edit-id" value="">
+        <div class="form-group">
+          <label for="sp-name-input" class="form-label">Nombre del Evento Ancla</label>
+          <input type="text" id="sp-name-input" class="form-input" required autocomplete="off" placeholder="Ej: Golpe de espada / Apertura de cofre">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="sp-tc-input" class="form-label">POV Timecode (DaVinci)</label>
+            <input type="text" id="sp-tc-input" class="form-input font-mono" required placeholder="01:00:00:00" autocomplete="off">
+            <span class="field-sub">Formato HH:MM:SS:FF</span>
+          </div>
+          <div class="form-group">
+            <label for="sp-ms-input" class="form-label">ReplayMod (milisegundos)</label>
+            <input type="number" id="sp-ms-input" class="form-input font-mono" required placeholder="1250000" autocomplete="off">
+            <span class="field-sub" id="sp-ms-preview">00m 00s 000ms</span>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button type="button" class="btn btn-secondary" data-close-dialog>Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-syncpoint">Guardar Punto</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Modal: Confirmar Eliminación -->
+  <dialog id="modal-confirm" class="app-dialog">
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <h3 class="dialog-title">Confirmar Eliminación</h3>
+        <button class="btn-close-dialog" data-close-dialog title="Cerrar (Esc)">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <p id="confirm-message" style="margin: 0; color: var(--text-secondary);">¿Estás seguro de que deseas eliminar este elemento? Esta acción no se puede deshacer.</p>
+        <div class="dialog-footer">
+          <button type="button" class="btn btn-secondary" data-close-dialog>Cancelar</button>
+          <button type="button" class="btn btn-danger" id="btn-confirm-delete-action">Eliminar</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Contenedor de Toasts -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <!-- Scripts -->
+  <script type="module" src="app.js"></script>
 </body>
 </html>
