@@ -167,3 +167,136 @@ export function formatReplayModTime(ms) {
   }
   return `${sign}${pad(minutes)}m ${pad(seconds)}s ${pad(remMs, 3)}ms`;
 }
+
+/**
+ * Parsea un operando según las reglas:
+ * 1. Si termina en 'ms' -> milisegundos (ej. '500ms', '1500ms')
+ * 2. Si termina en 'f' -> frames (ej. '15f', '60f')
+ * 3. Si termina en 's' -> segundos (ej. '2s', '1.5s')
+ * 4. Por defecto (sin sufijo de unidad) -> Timecode estilo DaVinci sin dos puntos (ej. '100' = 00:00:01:00, '25' = 00:00:00:25)
+ * @param {string} operandStr 
+ * @param {number} fps 
+ * @returns {{ type: 'ms'|'frames'|'seconds'|'timecode'|'empty'|'unknown', raw: any, frames: number, ms: number, valid: boolean }}
+ */
+export function parseOperand(operandStr, fps = 60) {
+  if (typeof operandStr !== 'string') {
+    return { type: 'unknown', raw: 0, frames: 0, ms: 0, valid: false };
+  }
+
+  const str = operandStr.trim().toLowerCase();
+  if (!str) {
+    return { type: 'empty', raw: 0, frames: 0, ms: 0, valid: false };
+  }
+
+  // 1. Milisegundos: termina en 'ms'
+  if (str.endsWith('ms')) {
+    const val = parseFloat(str.slice(0, -2).trim());
+    if (!isNaN(val)) {
+      const ms = Math.round(val);
+      const frames = Math.round((ms * fps) / 1000);
+      return { type: 'ms', raw: val, frames, ms, valid: true };
+    }
+  }
+
+  // 2. Frames: termina en 'f'
+  if (str.endsWith('f')) {
+    const val = parseFloat(str.slice(0, -1).trim());
+    if (!isNaN(val)) {
+      const frames = Math.round(val);
+      const ms = Math.round((frames * 1000) / fps);
+      return { type: 'frames', raw: val, frames, ms, valid: true };
+    }
+  }
+
+  // 3. Segundos: termina en 's'
+  if (str.endsWith('s')) {
+    const val = parseFloat(str.slice(0, -1).trim());
+    if (!isNaN(val)) {
+      const ms = Math.round(val * 1000);
+      const frames = Math.round(val * fps);
+      return { type: 'seconds', raw: val, frames, ms, valid: true };
+    }
+  }
+
+  // 4. Timecode por defecto (sin necesidad de escribir dos puntos)
+  // Si contiene ':' o ';' es timecode estándar
+  if (str.includes(':') || str.includes(';')) {
+    const parsed = parseTimecode(str, fps);
+    const ms = Math.round((parsed.totalFrames * 1000) / fps);
+    return { type: 'timecode', raw: str, frames: parsed.totalFrames, ms, valid: true };
+  }
+
+  // Si son solo dígitos: interpretar de derecha a izquierda como HH:MM:SS:FF
+  const digitsOnly = str.replace(/\D/g, '');
+  if (digitsOnly.length > 0) {
+    const padded = digitsOnly.padStart(8, '0').slice(-8);
+    const hh = parseInt(padded.slice(0, 2), 10);
+    const mm = parseInt(padded.slice(2, 4), 10);
+    const ss = parseInt(padded.slice(4, 6), 10);
+    const ff = parseInt(padded.slice(6, 8), 10);
+
+    const tcStr = `${pad(hh)}:${pad(mm)}:${pad(ss)}:${pad(ff)}`;
+    const parsed = parseTimecode(tcStr, fps);
+    const ms = Math.round((parsed.totalFrames * 1000) / fps);
+    return { type: 'timecode', raw: tcStr, frames: parsed.totalFrames, ms, valid: true };
+  }
+
+  return { type: 'unknown', raw: operandStr, frames: 0, ms: 0, valid: false };
+}
+
+/**
+ * Aplica una operación de suma o resta a un Timecode base.
+ * @param {string} baseTc Timecode base (ej. "01:00:00:00")
+ * @param {'+'|'-'} operator 
+ * @param {string} operandStr Valor a sumar/restar (ej. "15f", "500ms", "100")
+ * @param {number} fps 
+ * @returns {{ resultTc: string, deltaFrames: number, deltaMs: number, valid: boolean, parsed: any }}
+ */
+export function applyOffsetToTimecode(baseTc, operator, operandStr, fps = 60) {
+  const parsed = parseOperand(operandStr, fps);
+  if (!parsed.valid) {
+    return { resultTc: baseTc, deltaFrames: 0, deltaMs: 0, valid: false, parsed };
+  }
+
+  const baseFrames = parseTimecode(baseTc, fps).totalFrames;
+  const deltaFrames = operator === '-' ? -parsed.frames : parsed.frames;
+  const deltaMs = operator === '-' ? -parsed.ms : parsed.ms;
+  const newTotalFrames = baseFrames + deltaFrames;
+  const resultTc = framesToTimecode(newTotalFrames, fps);
+
+  return {
+    resultTc,
+    deltaFrames,
+    deltaMs,
+    valid: true,
+    parsed
+  };
+}
+
+/**
+ * Aplica una operación de suma o resta a un valor base en milisegundos.
+ * @param {number} baseMs Milisegundos base (ej. 1250000)
+ * @param {'+'|'-'} operator 
+ * @param {string} operandStr Valor a sumar/restar (ej. "15f", "500ms", "100")
+ * @param {number} fps 
+ * @returns {{ resultMs: number, deltaMs: number, deltaFrames: number, valid: boolean, parsed: any }}
+ */
+export function applyOffsetToMs(baseMs, operator, operandStr, fps = 60) {
+  const parsed = parseOperand(operandStr, fps);
+  if (!parsed.valid) {
+    return { resultMs: baseMs, deltaMs: 0, deltaFrames: 0, valid: false, parsed };
+  }
+
+  const deltaMs = operator === '-' ? -parsed.ms : parsed.ms;
+  const deltaFrames = operator === '-' ? -parsed.frames : parsed.frames;
+  const resultMs = Math.round(baseMs + deltaMs);
+
+  return {
+    resultMs,
+    deltaMs,
+    deltaFrames,
+    valid: true,
+    parsed
+  };
+}
+

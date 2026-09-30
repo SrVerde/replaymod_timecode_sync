@@ -639,6 +639,91 @@ kbd {
 }
 
 /* ==========================================================================
+   Calculator Mode Styles (+ / - Offset Mode)
+   ========================================================================== */
+
+.calc-op-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-right: 0.5rem;
+  user-select: none;
+  animation: badgePop 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.calc-op-badge.op-add {
+  background: var(--emerald-bg);
+  color: var(--emerald-primary);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 10px var(--emerald-glow);
+}
+
+.calc-op-badge.op-sub {
+  background: var(--amber-bg);
+  color: var(--amber-light);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  box-shadow: 0 0 10px var(--amber-glow);
+}
+
+.calc-live-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(19, 21, 27, 0.95);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.85rem;
+  font-size: 0.82rem;
+  margin-top: 0.35rem;
+  animation: slideDown 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.calc-preview-left {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calc-preview-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--amber-light);
+}
+
+.panel-replay .calc-preview-label {
+  color: var(--cyan-light);
+}
+
+.calc-preview-esc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+@keyframes badgePop {
+  from { transform: scale(0.8); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-4px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ==========================================================================
    Result Cards
    ========================================================================= */
 

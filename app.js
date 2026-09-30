@@ -3,7 +3,7 @@
  * Orquestador principal, gestión de estado, enrutador de teclado e interfaz de usuario.
  */
 
-import { parseTimecode, framesToTimecode, normalizeTimecode, povToReplayMod, replayModToPov, formatReplayModTime } from './timeUtils.js';
+import { parseTimecode, framesToTimecode, normalizeTimecode, povToReplayMod, replayModToPov, formatReplayModTime, applyOffsetToMs } from './timeUtils.js';
 import { NumpadInput } from './numpadInput.js';
 
 // Clave de almacenamiento local
@@ -22,6 +22,92 @@ const state = {
   },
   numpadPov: null,
   activeDeleteCallback: null
+};
+
+// ==========================================================================
+// Gestor de Historial: Deshacer (Ctrl+Z) y Rehacer (Ctrl+Shift+Z / Ctrl+Y)
+// ==========================================================================
+const historyManager = {
+  past: [],
+  future: [],
+  maxEntries: 50,
+
+  record() {
+    const snap = this.createSnapshot();
+    const last = this.past[this.past.length - 1];
+    if (last && last.povTc === snap.povTc && last.rmMs === snap.rmMs && last.activeSessionId === snap.activeSessionId && last.activeSyncPointId === snap.activeSyncPointId) {
+      return;
+    }
+    this.past.push(snap);
+    if (this.past.length > this.maxEntries) {
+      this.past.shift();
+    }
+    this.future = [];
+  },
+
+  createSnapshot() {
+    return {
+      povTc: state.numpadPov ? state.numpadPov.getValue() : '01:00:00:00',
+      rmMs: parseInt(document.getElementById('input-rm-ms')?.value, 10) || 0,
+      activeSessionId: state.data.active_session_id,
+      activeSyncPointId: getActiveSession()?.active_sync_point_id
+    };
+  },
+
+  undo() {
+    if (this.past.length === 0) {
+      showToast('No hay más acciones para deshacer');
+      return;
+    }
+    const current = this.createSnapshot();
+    this.future.push(current);
+    const previous = this.past.pop();
+    this.restore(previous, 'Deshecho (Ctrl+Z)');
+  },
+
+  redo() {
+    if (this.future.length === 0) {
+      showToast('No hay más acciones para rehacer');
+      return;
+    }
+    const current = this.createSnapshot();
+    this.past.push(current);
+    const next = this.future.pop();
+    this.restore(next, 'Rehecho (Ctrl+Shift+Z)');
+  },
+
+  restore(snapshot, label) {
+    if (!snapshot) return;
+
+    if (snapshot.activeSessionId && snapshot.activeSessionId !== state.data.active_session_id) {
+      state.data.active_session_id = snapshot.activeSessionId;
+      saveData();
+      renderSessionSelector();
+      updateFpsForSession();
+    }
+
+    const session = getActiveSession();
+    if (session && snapshot.activeSyncPointId && snapshot.activeSyncPointId !== session.active_sync_point_id) {
+      session.active_sync_point_id = snapshot.activeSyncPointId;
+      saveData();
+      renderSyncBanner();
+      renderSyncPointsTable();
+    }
+
+    if (state.numpadPov && snapshot.povTc) {
+      state.numpadPov.setTimecode(snapshot.povTc);
+    }
+
+    const rmInput = document.getElementById('input-rm-ms');
+    if (rmInput && snapshot.rmMs !== undefined) {
+      rmInput.value = snapshot.rmMs;
+      document.getElementById('input-rm-preview-inline').textContent = formatReplayModTime(snapshot.rmMs);
+    }
+
+    calculateModeA(false);
+    calculateModeB(false);
+    showToast(`${label}: ${snapshot.povTc} ⟷ ${formatNumber(snapshot.rmMs)} ms`);
+  }
 };
 
 // ==========================================================================
@@ -132,32 +218,190 @@ function setupInputs() {
   const session = getActiveSession();
   const fps = session ? session.fps : state.config.video.default_fps;
 
-  // Controlador Numpad para Modo A (POV)
+  // ========================================================================
+  // Controlador Modo A (POV) con Soporte de Modo Calculadora (Offset)
+  // ========================================================================
   const povInputEl = document.getElementById('input-pov-tc');
+  const povBadgeEl = document.getElementById('pov-calc-op-badge');
+  const povPreviewEl = document.getElementById('pov-calc-preview');
+  const povExprEl = document.getElementById('pov-calc-preview-expr');
+
   state.numpadPov = new NumpadInput(povInputEl, {
     fps: fps,
     onEnter: () => {
       calculateModeA();
+    },
+    onOffsetStateChange: (offsetState) => {
+      if (offsetState.isOffsetMode) {
+        povBadgeEl.style.display = 'inline-flex';
+        povBadgeEl.textContent = offsetState.operator;
+        povBadgeEl.className = `calc-op-badge ${offsetState.operator === '+' ? 'op-add' : 'op-sub'}`;
+        povPreviewEl.style.display = 'flex';
+        const operandDisplay = offsetState.offsetBuffer || '...';
+        povExprEl.innerHTML = `${offsetState.baseTimecode} <strong>${offsetState.operator}</strong> ${escapeHtml(operandDisplay)} ➔ <strong style="color: var(--amber-light);">${offsetState.previewTc}</strong>`;
+      } else {
+        povBadgeEl.style.display = 'none';
+        povPreviewEl.style.display = 'none';
+        povExprEl.textContent = '';
+      }
     }
   });
 
-  // Input Modo B (ReplayMod ms)
+  // ========================================================================
+  // Controlador Modo B (ReplayMod ms) con Soporte de Modo Calculadora (Offset)
+  // ========================================================================
   const rmInputEl = document.getElementById('input-rm-ms');
+  const rmBadgeEl = document.getElementById('rm-calc-op-badge');
+  const rmPreviewEl = document.getElementById('rm-calc-preview');
+  const rmExprEl = document.getElementById('rm-calc-preview-expr');
+
+  let rmOffsetMode = false;
+  let rmOffsetOp = '+';
+  let rmBaseMs = 0;
+  let rmOffsetBuffer = '';
+
+  function updateRmOffsetUI() {
+    if (rmOffsetMode) {
+      rmBadgeEl.style.display = 'inline-flex';
+      rmBadgeEl.textContent = rmOffsetOp;
+      rmBadgeEl.className = `calc-op-badge ${rmOffsetOp === '+' ? 'op-add' : 'op-sub'}`;
+      rmPreviewEl.style.display = 'flex';
+
+      const currSession = getActiveSession();
+      const currFps = currSession ? currSession.fps : 60;
+      const operandDisplay = rmOffsetBuffer || '...';
+      let previewMs = rmBaseMs;
+
+      if (rmOffsetBuffer.trim()) {
+        const res = applyOffsetToMs(rmBaseMs, rmOffsetOp, rmOffsetBuffer, currFps);
+        if (res.valid) {
+          previewMs = res.resultMs;
+        }
+      }
+
+      rmExprEl.innerHTML = `${formatNumber(rmBaseMs)} <strong>${rmOffsetOp}</strong> ${escapeHtml(operandDisplay)} ➔ <strong style="color: var(--cyan-light);">${formatNumber(previewMs)} ms</strong> (${formatReplayModTime(previewMs)})`;
+      rmInputEl.value = `${formatNumber(rmBaseMs)} ${rmOffsetOp} ${rmOffsetBuffer}`;
+    } else {
+      rmBadgeEl.style.display = 'none';
+      rmPreviewEl.style.display = 'none';
+      rmExprEl.textContent = '';
+    }
+  }
+
+  function exitRmOffsetMode(apply = true) {
+    if (!rmOffsetMode) return;
+    const currSession = getActiveSession();
+    const currFps = currSession ? currSession.fps : 60;
+
+    if (apply && rmOffsetBuffer.trim()) {
+      const res = applyOffsetToMs(rmBaseMs, rmOffsetOp, rmOffsetBuffer, currFps);
+      if (res.valid) {
+        rmInputEl.value = res.resultMs;
+      } else {
+        rmInputEl.value = rmBaseMs;
+      }
+    } else {
+      rmInputEl.value = rmBaseMs;
+    }
+
+    rmOffsetMode = false;
+    rmOffsetBuffer = '';
+    updateRmOffsetUI();
+
+    const inlineVal = parseInt(rmInputEl.value, 10);
+    document.getElementById('input-rm-preview-inline').textContent = !isNaN(inlineVal) ? formatReplayModTime(inlineVal) : '00m 00s 000ms';
+  }
+
   rmInputEl.addEventListener('keydown', (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+
+    // Tecla Enter
     if (e.key === 'Enter') {
       e.preventDefault();
+      historyManager.record();
+      if (rmOffsetMode) {
+        exitRmOffsetMode(true);
+      }
       calculateModeB();
+      return;
+    }
+
+    // Tecla Escape
+    if (e.key === 'Escape') {
+      if (rmOffsetMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        exitRmOffsetMode(false);
+        return;
+      }
+      rmInputEl.blur();
+      return;
+    }
+
+    // Teclas + o - para activar/conmutar Modo Calculadora en ReplayMod
+    if (e.key === '+' || e.key === 'Add' || e.key === '-' || e.key === 'Subtract') {
+      e.preventDefault();
+      const op = (e.key === '-' || e.key === 'Subtract') ? '-' : '+';
+      if (!rmOffsetMode) {
+        rmOffsetMode = true;
+        rmOffsetOp = op;
+        rmBaseMs = parseInt(rmInputEl.value.replace(/,/g, ''), 10) || 0;
+        rmOffsetBuffer = '';
+        updateRmOffsetUI();
+      } else {
+        rmOffsetOp = (rmOffsetOp === '+') ? '-' : '+';
+        updateRmOffsetUI();
+      }
+      return;
+    }
+
+    // Si está en Modo Offset
+    if (rmOffsetMode) {
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        if (rmOffsetBuffer.length > 0) {
+          rmOffsetBuffer = rmOffsetBuffer.slice(0, -1);
+          updateRmOffsetUI();
+        } else {
+          exitRmOffsetMode(false);
+        }
+        return;
+      }
+
+      if (e.key === 'Delete') {
+        e.preventDefault();
+        rmOffsetBuffer = '';
+        updateRmOffsetUI();
+        return;
+      }
+
+      if (/^[0-9fms:;]$/i.test(e.key)) {
+        e.preventDefault();
+        rmOffsetBuffer += e.key;
+        updateRmOffsetUI();
+        return;
+      }
+
+      if (['Tab', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        return;
+      }
+
+      if (e.key.length === 1) {
+        e.preventDefault();
+      }
     }
   });
 
-  // Previsualización en vivo mientras teclea en Modo B
+  // Previsualización en vivo mientras teclea en Modo B (cuando no está en offset mode)
   rmInputEl.addEventListener('input', () => {
-    const val = parseInt(rmInputEl.value, 10);
-    const previewEl = document.getElementById('input-rm-preview-inline');
-    if (!isNaN(val)) {
-      previewEl.textContent = formatReplayModTime(val);
-    } else {
-      previewEl.textContent = '00m 00s 000ms';
+    if (!rmOffsetMode) {
+      const val = parseInt(rmInputEl.value, 10);
+      const previewEl = document.getElementById('input-rm-preview-inline');
+      if (!isNaN(val)) {
+        previewEl.textContent = formatReplayModTime(val);
+      } else {
+        previewEl.textContent = '00m 00s 000ms';
+      }
     }
   });
 }
@@ -302,6 +546,21 @@ function setupEventListeners() {
 
 function setupGlobalShortcuts() {
   window.addEventListener('keydown', (e) => {
+    // Atajo Undo: Ctrl + Z (o Cmd + Z)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      historyManager.undo();
+      return;
+    }
+
+    // Atajo Redo: Ctrl + Shift + Z o Ctrl + Y (o Cmd + Shift + Z)
+    if (((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'z' || e.key === 'Z')) ||
+        ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y'))) {
+      e.preventDefault();
+      historyManager.redo();
+      return;
+    }
+
     // Si hay un diálogo modal abierto, Escape lo cierra nativamente
     const activeDialog = document.querySelector('dialog[open]');
     if (e.key === 'Escape') {
@@ -406,6 +665,9 @@ function navigateSyncPoints(direction) {
  * @param {boolean} triggerAutoCopy Si debe copiar al portapapeles y lanzar toast
  */
 function calculateModeA(triggerAutoCopy = true) {
+  if (triggerAutoCopy) {
+    historyManager.record();
+  }
   const session = getActiveSession();
   const anchor = getActiveSyncPoint();
   if (!session || !anchor) return;
@@ -443,6 +705,9 @@ function calculateModeA(triggerAutoCopy = true) {
  * @param {boolean} triggerAutoCopy Si debe copiar al portapapeles y lanzar toast
  */
 function calculateModeB(triggerAutoCopy = true) {
+  if (triggerAutoCopy) {
+    historyManager.record();
+  }
   const session = getActiveSession();
   const anchor = getActiveSyncPoint();
   if (!session || !anchor) return;

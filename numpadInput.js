@@ -3,7 +3,7 @@
  * Controlador de entrada de Timecode estilo DaVinci Resolve (inserción derecha a izquierda).
  */
 
-import { normalizeTimecode, pad } from './timeUtils.js';
+import { normalizeTimecode, pad, applyOffsetToTimecode } from './timeUtils.js';
 
 export class NumpadInput {
   /**
@@ -12,16 +12,24 @@ export class NumpadInput {
    * @param {number} options.fps Framerate del proyecto
    * @param {function(string): void} [options.onChange] Callback al cambiar valor
    * @param {function(string): void} [options.onEnter] Callback al pulsar Enter
+   * @param {function(Object): void} [options.onOffsetStateChange] Callback de estado de modo calculadora
    */
   constructor(inputElement, options = {}) {
     this.input = inputElement;
     this.fps = options.fps || 60;
     this.onChange = options.onChange || null;
     this.onEnter = options.onEnter || null;
+    this.onOffsetStateChange = options.onOffsetStateChange || null;
 
     // Buffer de 8 dígitos: HH MM SS FF
     this.buffer = '00000000';
     this.isNegative = false;
+
+    // Estado del Modo Calculadora (Offset Mode)
+    this.isOffsetMode = false;
+    this.offsetOp = '+';
+    this.baseTimecode = '';
+    this.offsetBuffer = '';
 
     this._bindEvents();
     this.render();
@@ -34,8 +42,9 @@ export class NumpadInput {
     this.input.addEventListener('keydown', (e) => this._handleKeyDown(e));
     this.input.addEventListener('paste', (e) => this._handlePaste(e));
     this.input.addEventListener('focus', () => {
-      // Al enfocar, seleccionar todo para comodidad visual
-      this.input.select();
+      if (!this.isOffsetMode) {
+        this.input.select();
+      }
     });
   }
 
@@ -52,18 +61,97 @@ export class NumpadInput {
     // Tecla Enter
     if (e.key === 'Enter') {
       e.preventDefault();
-      this.commit();
+      if (this.isOffsetMode) {
+        this.exitOffsetMode(true);
+      } else {
+        this.commit();
+      }
       if (this.onEnter) {
         this.onEnter(this.getValue());
       }
       return;
     }
 
-    // Tecla Escape (quitar foco)
+    // Tecla Escape (cancelar modo calculadora o quitar foco)
     if (e.key === 'Escape') {
+      if (this.isOffsetMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.exitOffsetMode(false);
+        return;
+      }
       this.input.blur();
       return;
     }
+
+    // Teclas + o - para activar/conmutar Modo Calculadora (Offset)
+    if (e.key === '+' || e.key === 'Add' || e.key === '-' || e.key === 'Subtract') {
+      e.preventDefault();
+      const op = (e.key === '-' || e.key === 'Subtract') ? '-' : '+';
+      if (!this.isOffsetMode) {
+        this.isOffsetMode = true;
+        this.offsetOp = op;
+        this.baseTimecode = this.getValue();
+        this.offsetBuffer = '';
+        this.renderOffsetFormula();
+        this._notifyOffset();
+      } else {
+        // Conmutar entre + y -
+        this.offsetOp = (this.offsetOp === '+') ? '-' : '+';
+        this.renderOffsetFormula();
+        this._notifyOffset();
+      }
+      return;
+    }
+
+    // ======================================================================
+    // Manejo cuando está en MODO CALCULADORA (Offset Mode)
+    // ======================================================================
+    if (this.isOffsetMode) {
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        if (this.offsetBuffer.length > 0) {
+          this.offsetBuffer = this.offsetBuffer.slice(0, -1);
+          this.renderOffsetFormula();
+          this._notifyOffset();
+        } else {
+          // Si el buffer ya está vacío, salir del modo offset y restaurar base
+          this.exitOffsetMode(false);
+        }
+        return;
+      }
+
+      if (e.key === 'Delete') {
+        e.preventDefault();
+        this.offsetBuffer = '';
+        this.renderOffsetFormula();
+        this._notifyOffset();
+        return;
+      }
+
+      // Permitir dígitos 0-9 y letras f, m, s (case-insensitive) y dos puntos si lo desean
+      if (/^[0-9fms:;]$/i.test(e.key)) {
+        e.preventDefault();
+        this.offsetBuffer += e.key;
+        this.renderOffsetFormula();
+        this._notifyOffset();
+        return;
+      }
+
+      // Permitir navegación
+      if (['Tab', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        return;
+      }
+
+      if (e.key.length === 1) {
+        e.preventDefault();
+      }
+      return;
+    }
+
+    // ======================================================================
+    // Manejo normal Numpad (derecha a izquierda)
+    // ======================================================================
 
     // Tecla Backspace (eliminar último dígito ingresado a la derecha)
     if (e.key === 'Backspace') {
@@ -79,15 +167,6 @@ export class NumpadInput {
       e.preventDefault();
       this.buffer = '00000000';
       this.isNegative = false;
-      this.render();
-      if (this.onChange) this.onChange(this.getValue());
-      return;
-    }
-
-    // Tecla de signo menos para conmutar negativo
-    if (e.key === '-' || e.key === 'Subtract') {
-      e.preventDefault();
-      this.isNegative = !this.isNegative;
       this.render();
       if (this.onChange) this.onChange(this.getValue());
       return;
@@ -111,6 +190,73 @@ export class NumpadInput {
     // Bloquear cualquier otra tecla alfanumérica
     if (e.key.length === 1) {
       e.preventDefault();
+    }
+  }
+
+  /**
+   * Notifica a la interfaz los cambios en el cálculo en vivo del offset.
+   */
+  _notifyOffset() {
+    let previewTc = this.baseTimecode;
+    let valid = false;
+    let deltaMs = 0;
+    let deltaFrames = 0;
+
+    if (this.offsetBuffer.trim()) {
+      const res = applyOffsetToTimecode(this.baseTimecode, this.offsetOp, this.offsetBuffer, this.fps);
+      if (res.valid) {
+        previewTc = res.resultTc;
+        valid = true;
+        deltaMs = res.deltaMs;
+        deltaFrames = res.deltaFrames;
+      }
+    }
+
+    if (this.onOffsetStateChange) {
+      this.onOffsetStateChange({
+        isOffsetMode: this.isOffsetMode,
+        operator: this.offsetOp,
+        baseTimecode: this.baseTimecode,
+        offsetBuffer: this.offsetBuffer,
+        previewTc,
+        valid,
+        deltaMs,
+        deltaFrames
+      });
+    }
+  }
+
+  /**
+   * Sale del Modo Calculadora, aplicando o descartando el resultado.
+   * @param {boolean} apply 
+   */
+  exitOffsetMode(apply = true) {
+    if (!this.isOffsetMode) return;
+
+    if (apply && this.offsetBuffer.trim()) {
+      const res = applyOffsetToTimecode(this.baseTimecode, this.offsetOp, this.offsetBuffer, this.fps);
+      if (res.valid) {
+        this.setTimecode(res.resultTc);
+      } else {
+        this.setTimecode(this.baseTimecode);
+      }
+    } else {
+      this.setTimecode(this.baseTimecode);
+    }
+
+    this.isOffsetMode = false;
+    this.offsetBuffer = '';
+    this.render();
+
+    if (this.onOffsetStateChange) {
+      this.onOffsetStateChange({
+        isOffsetMode: false,
+        operator: '+',
+        baseTimecode: this.getValue(),
+        offsetBuffer: '',
+        previewTc: this.getValue(),
+        valid: false
+      });
     }
   }
 
@@ -178,6 +324,18 @@ export class NumpadInput {
     const current = this.getValue();
     const normalized = normalizeTimecode(current, this.fps);
     this.setTimecode(normalized);
+  }
+
+  /**
+   * Renderiza la fórmula completa en el input cuando está en modo offset.
+   * Ej: "01:00:00:00 + 15f" o "01:00:00:00 + "
+   */
+  renderOffsetFormula() {
+    if (this.isOffsetMode) {
+      this.input.value = `${this.baseTimecode} ${this.offsetOp} ${this.offsetBuffer}`;
+    } else {
+      this.render();
+    }
   }
 
   /**

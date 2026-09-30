@@ -133,11 +133,19 @@
               <span class="input-hint">Estilo DaVinci (derecha a izquierda) · Rollover auto</span>
             </div>
             <div class="input-field-wrapper focus-amber">
+              <span id="pov-calc-op-badge" class="calc-op-badge" style="display: none;">+</span>
               <input id="input-pov-tc" type="text" class="main-time-input font-mono" value="01:00:00:00" spellcheck="false" autocomplete="off" placeholder="00:00:00:00">
               <button id="btn-calc-mode-a" class="btn-inside-calc" title="Calcular y Copiar (Enter)">
                 <span>Calcular</span>
                 <kbd>Enter ↵</kbd>
               </button>
+            </div>
+            <div id="pov-calc-preview" class="calc-live-preview" style="display: none;">
+              <div class="calc-preview-left">
+                <span class="calc-preview-label">Calculadora:</span>
+                <span id="pov-calc-preview-expr" class="font-mono"></span>
+              </div>
+              <span class="calc-preview-esc"><kbd>Esc</kbd> cancelar</span>
             </div>
           </div>
 
@@ -191,11 +199,19 @@
               <span class="input-hint" id="input-rm-preview-inline">20m 50s 000ms</span>
             </div>
             <div class="input-field-wrapper focus-cyan">
-              <input id="input-rm-ms" type="number" class="main-time-input font-mono" value="1250000" spellcheck="false" autocomplete="off" placeholder="Ej: 1250000">
+              <span id="rm-calc-op-badge" class="calc-op-badge" style="display: none;">+</span>
+              <input id="input-rm-ms" type="text" class="main-time-input font-mono" value="1250000" spellcheck="false" autocomplete="off" placeholder="Ej: 1250000">
               <button id="btn-calc-mode-b" class="btn-inside-calc" title="Calcular y Copiar (Enter)">
                 <span>Calcular</span>
                 <kbd>Enter ↵</kbd>
               </button>
+            </div>
+            <div id="rm-calc-preview" class="calc-live-preview" style="display: none;">
+              <div class="calc-preview-left">
+                <span class="calc-preview-label">Calculadora:</span>
+                <span id="rm-calc-preview-expr" class="font-mono"></span>
+              </div>
+              <span class="calc-preview-esc"><kbd>Esc</kbd> cancelar</span>
             </div>
           </div>
 
@@ -268,7 +284,10 @@
     <div class="footer-shortcuts">
       <span class="shortcut-item"><kbd>Alt+1</kbd> / <kbd>P</kbd> POV ➔ RM</span>
       <span class="shortcut-item"><kbd>Alt+2</kbd> / <kbd>R</kbd> RM ➔ POV</span>
+      <span class="shortcut-item"><kbd>+ / -</kbd> Calculadora</span>
       <span class="shortcut-item"><kbd>Enter</kbd> Calcular & Copiar</span>
+      <span class="shortcut-item"><kbd>Ctrl+Z</kbd> Deshacer</span>
+      <span class="shortcut-item"><kbd>Ctrl+Shift+Z</kbd> Rehacer</span>
       <span class="shortcut-item"><kbd>↑ / ↓</kbd> Cambiar Ancla</span>
       <span class="shortcut-item"><kbd>Alt+S</kbd> Nuevo Ancla</span>
       <span class="shortcut-item"><kbd>Alt+N</kbd> Nueva Sesión</span>
