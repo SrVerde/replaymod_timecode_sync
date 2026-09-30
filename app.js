@@ -115,7 +115,7 @@ const historyManager = {
 
     const rmInput = document.getElementById('input-rm-ms');
     if (rmInput && snapshot.rmMs !== undefined) {
-      rmInput.value = formatNumber(snapshot.rmMs);
+      rmInput.value = snapshot.rmMs;
       document.getElementById('input-rm-preview-inline').textContent = formatReplayModTime(snapshot.rmMs);
     }
 
@@ -301,7 +301,7 @@ function setupInputs() {
       }
 
       rmExprEl.innerHTML = `${formatNumber(rmBaseMs)} <strong>${rmOffsetOp}</strong> ${escapeHtml(operandDisplay)} ➔ <strong style="color: var(--cyan-light);">${formatNumber(previewMs)} ms</strong> (${formatReplayModTime(previewMs)})`;
-      rmInputEl.value = `${formatNumber(rmBaseMs)} ${rmOffsetOp} ${rmOffsetBuffer}`;
+      rmInputEl.value = `${rmBaseMs} ${rmOffsetOp} ${rmOffsetBuffer}`;
     } else {
       rmBadgeEl.style.display = 'none';
       rmPreviewEl.style.display = 'none';
