@@ -58,6 +58,10 @@ const historyManager = {
     this.future = [];
   },
 
+  record(snap = null) {
+    this.commit(snap);
+  },
+
   createSnapshot() {
     return {
       povTc: state.numpadPov ? state.numpadPov.getValue() : '01:00:00:00',
@@ -335,7 +339,6 @@ function setupInputs() {
     // Tecla Enter
     if (e.key === 'Enter') {
       e.preventDefault();
-      historyManager.record();
       if (rmOffsetMode) {
         exitRmOffsetMode(true);
       }
