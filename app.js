@@ -30,25 +30,38 @@ const state = {
 const historyManager = {
   past: [],
   future: [],
+  current: null,
   maxEntries: 50,
 
-  record() {
-    const snap = this.createSnapshot();
-    const last = this.past[this.past.length - 1];
-    if (last && last.povTc === snap.povTc && last.rmMs === snap.rmMs && last.activeSessionId === snap.activeSessionId && last.activeSyncPointId === snap.activeSyncPointId) {
+  init() {
+    this.current = this.createSnapshot();
+    this.past = [];
+    this.future = [];
+  },
+
+  commit(customSnapshot = null) {
+    const snap = customSnapshot || this.createSnapshot();
+    if (this.current &&
+        this.current.povTc === snap.povTc &&
+        this.current.rmMs === snap.rmMs &&
+        this.current.activeSessionId === snap.activeSessionId &&
+        this.current.activeSyncPointId === snap.activeSyncPointId) {
       return;
     }
-    this.past.push(snap);
-    if (this.past.length > this.maxEntries) {
-      this.past.shift();
+    if (this.current) {
+      this.past.push(this.current);
+      if (this.past.length > this.maxEntries) {
+        this.past.shift();
+      }
     }
+    this.current = snap;
     this.future = [];
   },
 
   createSnapshot() {
     return {
       povTc: state.numpadPov ? state.numpadPov.getValue() : '01:00:00:00',
-      rmMs: parseInt(document.getElementById('input-rm-ms')?.value, 10) || 0,
+      rmMs: parseInt(String(document.getElementById('input-rm-ms')?.value || '0').replace(/,/g, ''), 10) || 0,
       activeSessionId: state.data.active_session_id,
       activeSyncPointId: getActiveSession()?.active_sync_point_id
     };
@@ -59,10 +72,9 @@ const historyManager = {
       showToast('No hay más acciones para deshacer');
       return;
     }
-    const current = this.createSnapshot();
-    this.future.push(current);
-    const previous = this.past.pop();
-    this.restore(previous, 'Deshecho (Ctrl+Z)');
+    this.future.push(this.current);
+    this.current = this.past.pop();
+    this.restore(this.current, 'Deshecho (Ctrl+Z)');
   },
 
   redo() {
@@ -70,10 +82,9 @@ const historyManager = {
       showToast('No hay más acciones para rehacer');
       return;
     }
-    const current = this.createSnapshot();
-    this.past.push(current);
-    const next = this.future.pop();
-    this.restore(next, 'Rehecho (Ctrl+Shift+Z)');
+    this.past.push(this.current);
+    this.current = this.future.pop();
+    this.restore(this.current, 'Rehecho (Ctrl+Shift+Z)');
   },
 
   restore(snapshot, label) {
@@ -100,7 +111,7 @@ const historyManager = {
 
     const rmInput = document.getElementById('input-rm-ms');
     if (rmInput && snapshot.rmMs !== undefined) {
-      rmInput.value = snapshot.rmMs;
+      rmInput.value = formatNumber(snapshot.rmMs);
       document.getElementById('input-rm-preview-inline').textContent = formatReplayModTime(snapshot.rmMs);
     }
 
@@ -230,6 +241,12 @@ function setupInputs() {
     fps: fps,
     onEnter: () => {
       calculateModeA();
+    },
+    onUndo: () => {
+      historyManager.undo();
+    },
+    onRedo: () => {
+      historyManager.redo();
     },
     onOffsetStateChange: (offsetState) => {
       if (offsetState.isOffsetMode) {
@@ -665,9 +682,6 @@ function navigateSyncPoints(direction) {
  * @param {boolean} triggerAutoCopy Si debe copiar al portapapeles y lanzar toast
  */
 function calculateModeA(triggerAutoCopy = true) {
-  if (triggerAutoCopy) {
-    historyManager.record();
-  }
   const session = getActiveSession();
   const anchor = getActiveSyncPoint();
   if (!session || !anchor) return;
@@ -695,6 +709,15 @@ function calculateModeA(triggerAutoCopy = true) {
   const warnEl = document.getElementById('warning-a-negative');
   warnEl.style.display = result.deltaMs < 0 || result.isNegative ? 'inline-flex' : 'none';
 
+  if (triggerAutoCopy) {
+    historyManager.commit({
+      povTc: povTc,
+      rmMs: result.ms,
+      activeSessionId: session.id,
+      activeSyncPointId: anchor.id
+    });
+  }
+
   if (triggerAutoCopy && state.config.app.auto_copy) {
     copyToClipboard(result.ms.toString(), `${formatNumber(result.ms)} ms`);
   }
@@ -705,16 +728,13 @@ function calculateModeA(triggerAutoCopy = true) {
  * @param {boolean} triggerAutoCopy Si debe copiar al portapapeles y lanzar toast
  */
 function calculateModeB(triggerAutoCopy = true) {
-  if (triggerAutoCopy) {
-    historyManager.record();
-  }
   const session = getActiveSession();
   const anchor = getActiveSyncPoint();
   if (!session || !anchor) return;
 
   const fps = session.fps || 60;
   const rmInputEl = document.getElementById('input-rm-ms');
-  const inputMs = parseInt(rmInputEl.value, 10) || 0;
+  const inputMs = parseInt(String(rmInputEl.value).replace(/,/g, ''), 10) || 0;
 
   const result = replayModToPov(inputMs, anchor.pov_timecode, anchor.rm_time_index, fps);
 
@@ -730,6 +750,15 @@ function calculateModeB(triggerAutoCopy = true) {
   // Badge de advertencia de valor negativo
   const warnEl = document.getElementById('warning-b-negative');
   warnEl.style.display = result.deltaMs < 0 || result.isNegative ? 'inline-flex' : 'none';
+
+  if (triggerAutoCopy) {
+    historyManager.commit({
+      povTc: result.timecode,
+      rmMs: inputMs,
+      activeSessionId: session.id,
+      activeSyncPointId: anchor.id
+    });
+  }
 
   if (triggerAutoCopy && state.config.app.auto_copy) {
     copyToClipboard(result.timecode, result.timecode);
@@ -754,6 +783,7 @@ function renderAll() {
   }
   calculateModeA(false);
   calculateModeB(false);
+  historyManager.init();
 }
 
 function renderSessionSelector() {

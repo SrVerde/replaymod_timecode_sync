@@ -20,9 +20,12 @@ export class NumpadInput {
     this.onChange = options.onChange || null;
     this.onEnter = options.onEnter || null;
     this.onOffsetStateChange = options.onOffsetStateChange || null;
+    this.onUndo = options.onUndo || null;
+    this.onRedo = options.onRedo || null;
 
     // Buffer de 8 dígitos: HH MM SS FF
     this.buffer = '00000000';
+    this.bufferHistory = [];
     this.isNegative = false;
 
     // Estado del Modo Calculadora (Offset Mode)
@@ -44,6 +47,7 @@ export class NumpadInput {
     this.input.addEventListener('focus', () => {
       if (!this.isOffsetMode) {
         this.input.select();
+        this.bufferHistory = [this.buffer];
       }
     });
   }
@@ -53,6 +57,41 @@ export class NumpadInput {
    * @param {KeyboardEvent} e 
    */
   _handleKeyDown(e) {
+    // Interceptar Undo (Ctrl+Z) y Redo (Ctrl+Shift+Z / Ctrl+Y)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      if (this.isOffsetMode) {
+        if (this.offsetBuffer.length > 0) {
+          this.offsetBuffer = this.offsetBuffer.slice(0, -1);
+          this.renderOffsetFormula();
+          this._notifyOffset();
+        } else {
+          this.exitOffsetMode(false);
+        }
+        return;
+      }
+      if (this.bufferHistory && this.bufferHistory.length > 1) {
+        this.bufferHistory.pop();
+        this.buffer = this.bufferHistory[this.bufferHistory.length - 1];
+        this.render();
+        if (this.onChange) this.onChange(this.getValue());
+        return;
+      }
+      if (this.onUndo) {
+        this.onUndo();
+        return;
+      }
+    }
+
+    if (((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'z' || e.key === 'Z')) ||
+        ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y'))) {
+      e.preventDefault();
+      if (this.onRedo) {
+        this.onRedo();
+        return;
+      }
+    }
+
     // Permitir atajos con modificadores Ctrl, Alt, Meta (salvo Ctrl+V que se maneja en paste)
     if (e.altKey || e.ctrlKey || e.metaKey) {
       return;
@@ -177,6 +216,10 @@ export class NumpadInput {
       e.preventDefault();
       // Desplazamiento hacia la izquierda: entra por la derecha
       this.buffer = this.buffer.slice(1) + e.key;
+      if (this.bufferHistory) {
+        this.bufferHistory.push(this.buffer);
+        if (this.bufferHistory.length > 30) this.bufferHistory.shift();
+      }
       this.render();
       if (this.onChange) this.onChange(this.getValue());
       return;
