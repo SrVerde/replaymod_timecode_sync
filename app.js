@@ -183,12 +183,24 @@ function setupEventListeners() {
     const session = getActiveSession();
     if (session) {
       session.fps = newFps;
+
+      // Re-normalizar los sync points existentes de la sesión al nuevo framerate
+      if (Array.isArray(session.sync_points)) {
+        session.sync_points.forEach(sp => {
+          if (sp.pov_timecode) {
+            sp.pov_timecode = normalizeTimecode(sp.pov_timecode, newFps);
+          }
+        });
+      }
+
       saveData();
       state.numpadPov.setFps(newFps);
+      renderSessionSelector();
       renderSyncBanner();
       renderSyncPointsTable();
       calculateModeA(false);
       calculateModeB(false);
+      showToast(`Framerate de la sesión: ${newFps} fps`);
     }
   });
 

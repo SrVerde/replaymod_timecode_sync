@@ -207,6 +207,7 @@ export class NumpadInput {
   setFps(newFps) {
     if (newFps > 0) {
       this.fps = newFps;
+      this.commit();
     }
   }
 
